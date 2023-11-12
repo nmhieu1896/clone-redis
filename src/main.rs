@@ -10,9 +10,9 @@ async fn main() -> anyhow::Result<()> {
     loop {
         let (socket, _) = listener.accept().await?;
 
-        // tokio::spawn(async move {
-        process(socket).await;
-        // });
+        tokio::spawn(async move {
+            process(socket).await;
+        });
     }
 }
 
