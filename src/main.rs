@@ -1,4 +1,3 @@
-// use std::{io::Write, net::TcpListener};
 use tokio::{io::AsyncReadExt, io::AsyncWriteExt, net::TcpListener, net::TcpStream};
 
 #[tokio::main]
@@ -23,6 +22,8 @@ async fn process(mut client_socket: TcpStream) {
     loop {
         match reader.read(&mut buf).await {
             Ok(bytes_read) => {
+                println!("bytes read: {} | BUF: {:?}", bytes_read, &buf[0..10]);
+                println!("String read: {}", String::from_utf8_lossy(&buf));
                 if bytes_read == 0 {
                     break;
                 }
