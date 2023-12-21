@@ -1,11 +1,16 @@
+use anyhow::{Ok, Result};
 use bytes::BytesMut;
-use tokio::net::TcpStream;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+};
 
+#[derive(Clone)]
 pub enum Value {
     SimpleString(String),
-    Error(String),
-    Integer(i64),
-    BulkString(Vec<u8>),
+    // Error(String),
+    // Integer(i64),
+    BulkString(String),
     Array(Vec<Value>),
 }
 
@@ -32,9 +37,21 @@ impl RespHandler {
         }
     }
 
-    pub async fn read_value(&mut self) -> Result<Value> {}
+    pub async fn read_value(&mut self) -> Result<Option<Value>> {
+        let bytes_read = self.stream.read_buf(&mut self.buffer).await?;
+        if bytes_read == 0 {
+            return Ok(None);
+        }
 
-    pub async fn write_value(&mut self, value: Value) -> Result<()> {}
+        let (v, _) = parse_message(self.buffer.split())?;
+        Ok(Some(v))
+    }
+
+    pub async fn write_value(&mut self, value: Value) -> Result<()> {
+        self.stream.write(value.serialize().as_bytes()).await?;
+
+        Ok(())
+    }
 }
 
 fn parse_message(buffer: BytesMut) -> Result<(Value, usize)> {
@@ -57,7 +74,8 @@ fn parse_simple_string(buffer: BytesMut) -> Result<(Value, usize)> {
 }
 
 fn parse_array(buffer: BytesMut) -> Result<(Value, usize)> {
-    let (arr_length, bytes_consumed) = if let Some((line, idx)) = read_until_crlf(&buffer[1..]) {
+    let (arr_length, mut bytes_consumed) = if let Some((line, idx)) = read_until_crlf(&buffer[1..])
+    {
         let arr_length = parse_int(line)?;
         (arr_length, idx + 1)
     } else {
@@ -84,15 +102,14 @@ fn parse_bulk_string(buffer: BytesMut) -> Result<(Value, usize)> {
             return Err(anyhow::anyhow!("Invalid array length"));
         };
 
-    let mut items = vec![];
-    for _ in 0..bulk_string_length {
-        let (arr_item, len) = parse_message(BytesMut::from(&buffer[bytes_consumed..]))?;
-
-        items.push(arr_item);
-        bytes_consumed += len;
-    }
-
-    return Ok((Value::Array(items), bytes_consumed));
+    let end_of_bulk_string = bytes_consumed + bulk_string_length as usize;
+    let total_parsed = end_of_bulk_string + 2;
+    Ok((
+        Value::BulkString(String::from_utf8(
+            buffer[bytes_consumed..end_of_bulk_string].to_vec(),
+        )?),
+        total_parsed,
+    ))
 }
 
 fn read_until_crlf(buffer: &[u8]) -> Option<(&[u8], usize)> {
@@ -106,5 +123,5 @@ fn read_until_crlf(buffer: &[u8]) -> Option<(&[u8], usize)> {
 }
 
 fn parse_int(buffer: &[u8]) -> Result<i64> {
-    String::from_utf8(buffer.to_vec())?.parse::<i64>()
+    Ok(String::from_utf8(buffer.to_vec())?.parse::<i64>()?)
 }
